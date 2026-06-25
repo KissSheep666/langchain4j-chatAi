@@ -1,9 +1,12 @@
 package com.study.langchain4jspringboot.controller.document;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.URLUtil;
 import com.study.langchain4jspringboot.controller.chat.vo.RetrievedRecordResponse;
+import com.study.langchain4jspringboot.dto.DocumentTaskMessage;
+import com.study.langchain4jspringboot.messaging.DocumentProcessingProducer;
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.DocumentSplitter;
@@ -24,8 +27,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static com.study.langchain4jspringboot.convert.ContentConvert.convertToRecord0;
@@ -68,6 +75,11 @@ public class DocumentController {
     private final EmbeddingModel embeddingModel;
 
     /**
+     * 消息生产者 —— 异步文档处理
+     */
+    private final DocumentProcessingProducer producer;
+
+    /**
      * 从ClassPath加载文档并向量化存储
      *
      * @return
@@ -107,6 +119,40 @@ public class DocumentController {
     }
 
     /**
+     * （异步）上传文件，通过 RabbitMQ 异步解析→向量化→存储。
+     *
+     * @param files 文件列表
+     * @return taskId 用于后续查询处理状态
+     */
+    @PostMapping("/load/file/async")
+    public Map<String, String> fileDocumentAsync(@RequestParam MultipartFile... files) throws IOException {
+        // 保存文件到临时目录，以便 Consumer 读取
+        Path tempDir = Path.of(System.getProperty("java.io.tmpdir"), "langchain4j-docs");
+        Files.createDirectories(tempDir);
+
+        StringBuilder taskIds = new StringBuilder();
+        for (MultipartFile file : files) {
+            String taskId = IdUtil.simpleUUID();
+            Path saved = tempDir.resolve(taskId + "_" + file.getOriginalFilename());
+            file.transferTo(saved.toFile());
+
+            DocumentTaskMessage message = new DocumentTaskMessage(
+                    taskId, "FILE", saved.toString(),
+                    file.getOriginalFilename(), Instant.now());
+            producer.send(message);
+
+            if (!taskIds.isEmpty()) taskIds.append(",");
+            taskIds.append(taskId);
+        }
+
+        return Map.of(
+                "status", "accepted",
+                "taskIds", taskIds.toString(),
+                "message", "文档已提交异步处理，可通过 GET /document/status/{taskId} 查询进度"
+        );
+    }
+
+    /**
      * 从URL加载文档并向量化存储
      *
      * @param fileUrls 文件url列表
@@ -128,6 +174,30 @@ public class DocumentController {
                 .toList();
         List<String> ids = embeddingAndStore(documentList);
         return StrUtil.format("将{}个文档，切分为：{}个段存入向量库", documentList.size(), ids.size());
+    }
+
+    /**
+     * （异步）提交 URL 文档，通过 RabbitMQ 异步处理。
+     */
+    @PostMapping("/load/url/async")
+    public Map<String, String> urlDocumentAsync(@RequestParam("fileUrls") List<String> fileUrls) {
+        StringBuilder taskIds = new StringBuilder();
+        for (String fileUrl : fileUrls) {
+            String taskId = IdUtil.simpleUUID();
+            DocumentTaskMessage message = new DocumentTaskMessage(
+                    taskId, "URL", fileUrl,
+                    FileUtil.getName(fileUrl), Instant.now());
+            producer.send(message);
+
+            if (!taskIds.isEmpty()) taskIds.append(",");
+            taskIds.append(taskId);
+        }
+
+        return Map.of(
+                "status", "accepted",
+                "taskIds", taskIds.toString(),
+                "message", "URL 文档已提交异步处理"
+        );
     }
 
     /**
