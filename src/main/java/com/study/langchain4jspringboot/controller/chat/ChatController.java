@@ -1,14 +1,9 @@
 package com.study.langchain4jspringboot.controller.chat;
 
-import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.IdUtil;
-import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.study.langchain4jspringboot.ai.assistant.QwenAssistant;
-import com.study.langchain4jspringboot.controller.chat.vo.RetrievedRecordResponse;
-import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.service.TokenStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,20 +15,14 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
-import java.util.*;
-import java.util.stream.Collectors;
-
 import static com.study.langchain4jspringboot.convert.ContentConvert.convertToRecord;
-import static dev.langchain4j.data.document.Document.*;
 import static org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE;
 
 /**
+ * AI 聊天控制器，提供流式对话（Flux/SSE）与新会话创建接口。
+ *
  * @author kisssheep
- * @see:
- * @since:
- * @date:2025-03-04-10:32
- * @description:com.study.langchain4jspringboot.cotroller
- * @version:1.0
+ * @date 2025-03-04
  */
 @RestController
 @RequiredArgsConstructor
